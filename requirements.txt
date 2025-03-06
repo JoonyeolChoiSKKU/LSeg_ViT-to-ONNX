@@ -1,0 +1,8 @@
+torch
+torchvision
+tensorrt
+huggingface_hub
+pytorch_lightning
+numpy
+timm
+clip-by-openai
