@@ -28,5 +28,6 @@ htmlcov/
 .ipynb_checkpoints
 
 # 모델 체크포인트 (대용량 파일)
-demo_e200.ckpt
-lseg_image_encoder.onnx
+*.ckpt
+*.onnx
+*.trt
