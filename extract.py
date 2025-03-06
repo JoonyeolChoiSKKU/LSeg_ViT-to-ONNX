@@ -98,7 +98,7 @@ if __name__ == "__main__":
         input_names=["input"],
         output_names=["output"],
         opset_version=14,
-        dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}}
+        dynamic_axes=None
     )
     
     print("ONNX export complete:", onnx_filename)
