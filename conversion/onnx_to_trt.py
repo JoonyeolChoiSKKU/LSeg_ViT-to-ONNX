@@ -55,8 +55,8 @@ def save_engine(engine, engine_file_path):
         f.write(engine.serialize())
 
 if __name__ == "__main__":
-    onnx_path = "lseg_image_encoder.onnx"  # 변환할 ONNX 파일
-    engine_path = "lseg_image_encoder.trt"  # 변환된 TensorRT 엔진 저장 경로
+    onnx_path = "models/lseg_image_encoder.onnx"  # 변환할 ONNX 파일
+    engine_path = "models/lseg_image_encoder.trt"  # 변환된 TensorRT 엔진 저장 경로
     
     engine = build_engine(onnx_path)
     if engine:
