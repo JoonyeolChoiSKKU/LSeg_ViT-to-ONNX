@@ -39,7 +39,7 @@ wget https://huggingface.co/joonyeol99/LSeg_ViT-to-ONNX/resolve/main/demo_e200.c
 또는 `download_from_hf.py` 스크립트를 실행하면 자동으로 다운로드됩니다:
 
 ```bash
-python download_from_hf.py
+python3 models/srcipts/download_from_hf.py
 ```
 
 
@@ -107,7 +107,7 @@ python3 conversion/onnx_to_trt.py
 **3. 추론 및 성능 비교** **자동 실행: PyTorch vs ONNX vs TensorRT Inference** 아래 명령어를 실행하면 **PyTorch, ONNX, TensorRT Inference 속도를 비교** 할 수 있습니다:
 
 ```bash
-python3 inference/inferenceTimeTester.py
+python3 inferenceTimeTester.py
 ```
 
 이 스크립트는 다음 과정을 자동으로 수행합니다:
@@ -149,7 +149,7 @@ python3 inference/inferenceTimeTester.py
 
 
 ```bash
-pip install onnxruntime-gpu
+pip3 install onnxruntime-gpu
 ```
  
 - `CUDAExecutionProvider`가 활성화되었는지 확인하려면:
