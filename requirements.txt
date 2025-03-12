@@ -1,13 +1,13 @@
 torch
 torchvision
+torchaudio
 pytorch-lightning
 tensorrt
 onnx
-onnxruntime
+onnxruntime-gpu
 pycuda
 numpy
 timm
 clip-by-openai
 huggingface_hub
 tqdm
-onnxruntime-gpu
