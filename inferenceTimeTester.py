@@ -10,6 +10,10 @@ import subprocess
 import argparse
 from tqdm import tqdm
 from modules.lseg_module import LSegModule
+import re
+import pandas as pd
+
+results = []
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def run_subprocess(command):
     try:
@@ -37,12 +41,15 @@ def measure_pytorch_inference_time(model, input_tensor, iterations=100):
             end = time.time()
             times.append((end - start) * 1000)
 
-    print(f"[RESULT] PyTorch Avg Inference Time: {np.mean(times):.3f} ms ± {np.std(times):.3f} ms")
+    time_avg = np.mean(times)
+    time_std = np.std(times)
+    print(f"[RESULT] PyTorch Avg Inference Time: {time_avg:.3f} ms ± {time_std:.3f} ms")
 
     # ✅ PyTorch 모델을 CPU로 이동 (메모리 정리)
     model.to("cpu")
     torch.cuda.empty_cache()
     torch.cuda.synchronize()
+    return time_avg, time_std
 
 def measure_onnx_inference_time(onnx_path, input_tensor, iterations=100):
     print("[INFO] ONNX 모델 추론 (GPU) 시작...")
@@ -78,13 +85,16 @@ def measure_onnx_inference_time(onnx_path, input_tensor, iterations=100):
         _ = session.run(None, {input_name: input_array})
         end = time.time()
         times.append((end - start) * 1000)
-
-    print(f"[RESULT] ONNX Avg Inference Time: {np.mean(times):.3f} ms ± {np.std(times):.3f} ms")
+    
+    time_avg = np.mean(times)
+    time_std = np.std(times)
+    print(f"[RESULT] ONNX Avg Inference Time: {time_avg:.3f} ms ± {time_std:.3f} ms")
+    return time_avg, time_std
 
 
 
 def measure_tensorrt_inference_time(trt_engine_path, input_tensor, iterations=100):
-    print("[INFO] TensorRT 모델 추론 시작...")
+    print("[INFO] TensorRT (Python) 모델 추론 시작...")
     logger = trt.Logger(trt.Logger.WARNING)
     with open(trt_engine_path, "rb") as f, trt.Runtime(logger) as runtime:
         engine = runtime.deserialize_cuda_engine(f.read())
@@ -119,11 +129,15 @@ def measure_tensorrt_inference_time(trt_engine_path, input_tensor, iterations=10
         end = time.time()
         times.append((end - start) * 1000)
 
-    print(f"[RESULT] TensorRT Avg Inference Time: {np.mean(times):.3f} ms ± {np.std(times):.3f} ms")
+    time_avg = np.mean(times)
+    time_std = np.std(times)
+    print(f"[RESULT] TensorRT (Python) Avg Inference Time: {time_avg:.3f} ms ± {time_std:.3f} ms")
+    return time_avg, time_std
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--img_sizes", nargs='+', type=int, default=[256, 320, 384, 480], help="List of input image sizes")
+    parser.add_argument("--iterations", type=int, default=1000)
     args = parser.parse_args()
     
     checkpoint_path = "modules/demo_e200.ckpt"
@@ -163,6 +177,39 @@ if __name__ == "__main__":
             activation="lrelu"
         ).net
         
-        measure_pytorch_inference_time(model, dummy_input, 1000)
-        #measure_onnx_inference_time(onnx_path, dummy_input, 1000)
-        measure_tensorrt_inference_time(trt_path, dummy_input, 1000)
+        pt_avg, pt_std = measure_pytorch_inference_time(model, dummy_input, args.iterations)
+        #onnx_avg, onnx_std = measure_onnx_inference_time(onnx_path, dummy_input, 1000)
+        trt_py_avg, trt_py_std = measure_tensorrt_inference_time(trt_path, dummy_input, args.iterations)
+        # Run C++ TensorRT benchmark
+        cpp_cmd = [
+            "./build/trt_cpp_infer_time_tester",
+            trt_path,
+            str(args.iterations),
+            str(img_size)
+        ]
+        print(f"[INFO] Running C++ TensorRT benchmark: {' '.join(cpp_cmd)}")
+        cpp_proc = subprocess.run(cpp_cmd, capture_output=True, text=True, check=True)
+
+        # Parse C++ stdout
+        match = re.search(r"Avg=([\d\.]+) ms ± ([\d\.]+) ms", cpp_proc.stdout)
+        cpp_avg, cpp_std = map(float, match.groups())
+        print(f"[INFO] TRT C++ Avg: {cpp_avg:.3f} ms ± {cpp_std:.3f} ms")
+
+        results.append({
+            "Size": img_size,
+            "PyTorch (ms)": pt_avg,
+            "PyTorch ±": pt_std,
+            "TRT Python (ms)": trt_py_avg,
+            "TRT Python ±": trt_py_std,
+            "TRT C++ (ms)": cpp_avg,
+            "TRT C++ ±": cpp_std,
+        })
+        
+    # Build DataFrame & print
+    df = pd.DataFrame(results).set_index("Size")
+    print("\n===== Inference Benchmark Summary =====")
+    print(df.to_string())
+    print("\n===== Inference Benchmark Summary =====")
+    print(df.to_markdown())
+    
+    
