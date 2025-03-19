@@ -9,9 +9,8 @@ import pycuda.autoinit
 import subprocess
 import argparse
 from tqdm import tqdm
-from lseg.lseg_module import LSegModule
-from lseg.image_encoder import LSegImageEncoder
-
+from modules.lseg_module import LSegModule
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def run_subprocess(command):
     try:
         print(f"[INFO] 실행 중: {' '.join(command)}")
@@ -105,7 +104,7 @@ def measure_tensorrt_inference_time(trt_engine_path, input_tensor, iterations=10
         engine = runtime.deserialize_cuda_engine(f.read())
     context = engine.create_execution_context()
     input_shape = input_tensor.shape
-    output_shape = (1, 512, input_shape[2] // 2, input_shape[3] // 2)
+    output_shape = (1, 512, input_shape[2], input_shape[3])
     d_input = cuda.mem_alloc(input_tensor.nbytes)
     d_output = cuda.mem_alloc(int(np.prod(output_shape) * np.dtype(np.float32).itemsize))
     stream = cuda.Stream()
@@ -136,23 +135,41 @@ if __name__ == "__main__":
     parser.add_argument("--img_sizes", nargs='+', type=int, default=[128, 320, 384, 480], help="List of input image sizes")
     args = parser.parse_args()
     
-    checkpoint_path = "models/demo_e200.ckpt"
+    checkpoint_path = "modules/demo_e200.ckpt"
     print("[INFO] PyTorch 모델 로드 중...")
-    lseg_module = LSegModule.load_from_checkpoint(checkpoint_path=checkpoint_path)
-    lseg_net = lseg_module.net if hasattr(lseg_module, 'net') else lseg_module
-    image_encoder = LSegImageEncoder(lseg_net)
+    model = LSegModule.load_from_checkpoint(
+        checkpoint_path=checkpoint_path,
+        backbone="clip_vitl16_384",
+        aux=False,
+        num_features=256,
+        readout="project",
+        aux_weight=0,
+        se_loss=False,
+        se_weight=0,
+        ignore_index=255,
+        dropout=0.0,
+        scale_inv=False,
+        augment=False,
+        no_batchnorm=False,
+        widehead=True,
+        widehead_hr=False,
+        map_location=device,
+        arch_option=0,
+        block_depth=0,
+        activation="lrelu"
+    ).net
     
     for img_size in args.img_sizes:
         print(f"[INFO] Testing image size: {img_size}")
-        onnx_path = f"models/lseg_image_encoder_{img_size}.onnx"
-        trt_path = f"models/lseg_image_encoder_{img_size}.trt"
+        onnx_path = f"output/models/lseg_image_encoder_{img_size}.onnx"
+        trt_path = f"output/models/lseg_image_encoder_{img_size}.trt"
         dummy_input = torch.randn(1, 3, img_size, img_size)
         
         if not os.path.exists(onnx_path):
             run_subprocess(["python3", "conversion/model_to_onnx.py", "--img_size", str(img_size)])
         if not os.path.exists(trt_path):
-            run_subprocess(["python3", "conversion/onnx_to_trt_optimized.py", "--img_size", str(img_size)])
+            run_subprocess(["python3", "conversion/onnx_to_trt.py", "--img_size", str(img_size)])
         
-        measure_pytorch_inference_time(image_encoder, dummy_input)
-        measure_onnx_inference_time(onnx_path, dummy_input)
+        measure_pytorch_inference_time(model, dummy_input)
+        #measure_onnx_inference_time(onnx_path, dummy_input)
         measure_tensorrt_inference_time(trt_path, dummy_input)

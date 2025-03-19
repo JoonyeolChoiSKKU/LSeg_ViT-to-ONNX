@@ -2,28 +2,27 @@ import argparse
 import torch
 import torch.nn as nn
 import torch.onnx
-from lseg.lseg_module import LSegModule
-from lseg.image_encoder import LSegImageEncoder
+from modules.lseg_module import LSegModule
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--img_size", type=int, default=480, help="Input image size")
+    parser.add_argument("--img_size", type=int, default=384, help="Input image size")
     args = parser.parse_args()
-    
-    checkpoint_path = "models/demo_e200.ckpt"
-    lseg_module = LSegModule.load_from_checkpoint(
+    # ✅ 디바이스 설정 (GPU 사용 가능하면 GPU, 아니면 CPU)
+    #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    #print(f"Using device: {device}")
+
+    # ✅ 체크포인트 경로 (데이터셋 관련 매개변수는 필요 없으므로 제거 가능)
+    checkpoint_path = "modules/demo_e200.ckpt"
+    model = LSegModule.load_from_checkpoint(
         checkpoint_path=checkpoint_path,
-        data_path='../datasets/',
-        dataset='ade20k',
-        backbone='clip_vitl16_384',
+        backbone="clip_vitl16_384",
         aux=False,
         num_features=256,
+        readout="project",
         aux_weight=0,
         se_loss=False,
         se_weight=0,
-        base_lr=0,
-        batch_size=1,
-        max_epochs=0,
         ignore_index=255,
         dropout=0.0,
         scale_inv=False,
@@ -31,21 +30,22 @@ if __name__ == "__main__":
         no_batchnorm=False,
         widehead=True,
         widehead_hr=False,
-        map_locatin="cpu",
+        map_location="cpu",
+        #map_location=device,
         arch_option=0,
         block_depth=0,
-        activation='lrelu'
-    )
-    
-    lseg_net = lseg_module.net if hasattr(lseg_module, 'net') else lseg_module
-    image_encoder = LSegImageEncoder(lseg_net)
-    image_encoder.eval()
+        activation="lrelu"
+    ).net
+    # ).net.to(device)
 
+    model.eval()
+
+    #dummy_input = torch.randn(1, 3, args.img_size, args.img_size, device=device)
     dummy_input = torch.randn(1, 3, args.img_size, args.img_size)
-    onnx_filename = f"models/lseg_image_encoder_{args.img_size}.onnx"
+    onnx_filename = f"output/models/lseg_image_encoder_{args.img_size}.onnx"
     
     torch.onnx.export(
-        image_encoder,
+        model,
         dummy_input,
         onnx_filename,
         input_names=["input"],
@@ -54,4 +54,4 @@ if __name__ == "__main__":
         dynamic_axes=None
     )
     
-    print(f"ONNX export complete: {onnx_filename}")
+    print(f"✅ Image Encoder가 ONNX 파일로 저장되었습니다: {onnx_filename}")
