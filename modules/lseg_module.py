@@ -9,15 +9,15 @@ from .models.lseg_net import LSegNet
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 
 class LSegModule:
-    def __init__(self, crop_size=384,**kwargs):
-        self.crop_size = crop_size
+    def __init__(self, **kwargs):
+        self.crop_size = kwargs["crop_size"]
         # minimal label loading (필요한 경우, 혹은 고정된 라벨 리스트로 대체 가능)
         labels = self.get_labels('ade20k')
         self.net = LSegNet(
             labels=labels,
             backbone=kwargs["backbone"],
             features=kwargs["num_features"],
-            crop_size=384,
+            crop_size=kwargs["crop_size"],
             arch_option=kwargs["arch_option"],
             block_depth=kwargs["block_depth"],
             activation=kwargs["activation"],
