@@ -137,21 +137,32 @@ def measure_tensorrt_inference_time(trt_engine_path, input_tensor, iterations=10
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--img_sizes", nargs='+', type=int, default=[256, 320, 384, 480], help="List of input image sizes")
+    parser.add_argument("--weights", type=str, default="modules/demo_e200.ckpt", help="Path to checkpoint")
     parser.add_argument("--iterations", type=int, default=1000)
     args = parser.parse_args()
     
-    checkpoint_path = "modules/demo_e200.ckpt"
+    # ✅ 체크포인트 경로 (데이터셋 관련 매개변수는 필요 없으므로 제거 가능)
+    checkpoint_path = args.weights
+
+    # ✅ 체크포인트 경로에서 태그 추출 (예: demo_e200.ckpt → ade20k, fss_l16.ckpt → fss)
+    checkpoint_filename = os.path.basename(checkpoint_path)
+    if "ade20k" in checkpoint_filename or "demo" in checkpoint_filename:
+        tag = "ade20k"
+    elif "fss" in checkpoint_filename:
+        tag = "fss"
+    else:
+        tag = "custom"
     
     for img_size in args.img_sizes:
         print(f"[INFO] Testing image size: {img_size}")
-        onnx_path = f"output/models/lseg_image_encoder_{img_size}.onnx"
-        trt_path = f"output/models/lseg_image_encoder_{img_size}.trt"
+        onnx_path = f"output/models/lseg_img_enc_vit_{img_size}_{tag}.onnx"
+        trt_path = f"output/models/lseg_img_enc_vit_{img_size}_{tag}.trt"
         dummy_input = torch.randn(1, 3, img_size, img_size)
         
         if not os.path.exists(onnx_path):
-            run_subprocess(["python3", "conversion/model_to_onnx.py", "--img_size", str(img_size)])
+            run_subprocess(["python3", "conversion/model_to_onnx.py", "--img_size", str(img_size), "--weights", checkpoint_path])
         if not os.path.exists(trt_path):
-            run_subprocess(["python3", "conversion/onnx_to_trt.py", "--img_size", str(img_size)])
+            run_subprocess(["python3", "conversion/onnx_to_trt.py", "--img_size", str(img_size), "--weights", checkpoint_path])
 
         print("[INFO] PyTorch 모델 로드 중...")
         model = LSegModule.load_from_checkpoint(

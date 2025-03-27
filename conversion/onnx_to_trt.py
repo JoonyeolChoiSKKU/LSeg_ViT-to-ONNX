@@ -1,7 +1,7 @@
 import argparse
 import sys
 import tensorrt as trt
-
+import os
 TRT_LOGGER = trt.Logger(trt.Logger.INFO)
 EXPLICIT_BATCH = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
 
@@ -46,10 +46,23 @@ def save_engine(engine, engine_file_path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--img_size", type=int, required=True, help="Input image size")
+    parser.add_argument("--weights", type=str, default="modules/demo_e200.ckpt", help="Path to checkpoint")
     args = parser.parse_args()
+
+    # ✅ 체크포인트 경로 (데이터셋 관련 매개변수는 필요 없으므로 제거 가능)
+    checkpoint_path = args.weights
+
+    # ✅ 체크포인트 경로에서 태그 추출 (예: demo_e200.ckpt → ade20k, fss_l16.ckpt → fss)
+    checkpoint_filename = os.path.basename(checkpoint_path)
+    if "ade20k" in checkpoint_filename or "demo" in checkpoint_filename:
+        tag = "ade20k"
+    elif "fss" in checkpoint_filename:
+        tag = "fss"
+    else:
+        tag = "custom"
     
-    onnx_path = f"output/models/lseg_image_encoder_{args.img_size}.onnx"
-    engine_path = f"output/models/lseg_image_encoder_{args.img_size}.trt"
+    onnx_path = f"output/models/lseg_img_enc_vit_{args.img_size}_{tag}.onnx"
+    engine_path = f"output/models/lseg_img_enc_vit_{args.img_size}_{tag}.trt"
     
     engine = build_engine(onnx_path, args.img_size)
     if engine:
