@@ -1,1 +1,1 @@
-python3 demo.py --image dog_grass.jpeg --labels "dog, grass, other" --onnx output/models/lseg_img_enc_vit_384_ade20k.onnx --size 384
+python3 demo.py --image images/dog_grass.jpeg --labels "dog, grass, other" --onnx output/models/lseg_img_enc_vit_384_ade20k.onnx --size 384

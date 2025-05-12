@@ -2,8 +2,10 @@ import argparse
 import torch
 import torch.nn as nn
 import torch.onnx
+import os, sys
+# ── 스크립트 위치의 상위 폴더(=프로젝트 루트)를 경로에 추가
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from modules.lseg_module import LSegModule
-import os
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -89,9 +89,10 @@ class LSegNet(LSeg):
         kwargs["use_bn"] = True  # 항상 batch norm 사용
         self.crop_size = crop_size
         self.labels = labels  # 실제 라벨 리스트 (ONNX 추출에는 사용되지 않음)
-        head = nn.Sequential(
-            Interpolate(scale_factor=2, mode="bilinear", align_corners=True)
-        )
+        # head = nn.Sequential(
+        #     Interpolate(scale_factor=2, mode="bilinear", align_corners=True)
+        # )
+        head = nn.Identity()
         super(LSegNet, self).__init__(head, **kwargs)
         if path is not None:
             self.load(path)

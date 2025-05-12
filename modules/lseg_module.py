@@ -1,6 +1,7 @@
 import os
 import torch
-
+import torch.nn as nn
+import numpy as np
 # ★ 필요에 따라 대체할 upsampling 파라미터를 정의하세요.
 # 원래 encoding 라이브러리에서 사용한 up_kwargs의 내용을 참고하여 동일한 파라미터를 제공해야 합니다.
 up_kwargs = {'mode': 'bilinear', 'align_corners': True}
@@ -10,9 +11,24 @@ from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 
 class LSegModule:
     def __init__(self, **kwargs):
+        # 필수 하이퍼파라미터
         self.crop_size = kwargs["crop_size"]
+        # sliding_inference 와 동일한 upsample 옵션
+        self._up_kwargs = up_kwargs
+        # sliding window 평가용 기본값
+        self.base_size = kwargs.get("base_size", 520)   # 원본 기본값 520
+        self.mean      = [0.5, 0.5, 0.5]                # 원본 normalize 값
+        self.std       = [0.5, 0.5, 0.5]
+
+        # ← 여기를 추가합니다: 원본과 동일한 logit_scale 정의
+        self.logit_scale = nn.Parameter(
+            torch.ones([]) * np.log(1 / 0.07)
+        ).exp()
         # minimal label loading (필요한 경우, 혹은 고정된 라벨 리스트로 대체 가능)
         labels = self.get_labels('ade20k')
+        self.num_class = len(labels)           # ← 클래스 개수
+        self.base_size  = kwargs.get('base_size', 520)  # ← 원본 테스트에선 520 고정
+        self.mean, self.std = [0.5]*3, [0.5]*3  # ← Normalize 파라미터
         self.net = LSegNet(
             labels=labels,
             backbone=kwargs["backbone"],
@@ -54,11 +70,15 @@ class LSegModule:
         else:
             state = checkpoint
 
-        # 만약 checkpoint에 hyper_parameters가 있다면 이를 사용
-        if "hyper_parameters" in checkpoint:
-            instance = cls(**checkpoint["hyper_parameters"], map_location=map_location, **kwargs)
-        else:
-            instance = cls(**kwargs)
+        instance = cls(**checkpoint.get("hyper_parameters", {}), **kwargs)
+        # hyper_parameters에 없을 수 있는 필드들 보강
+        if not hasattr(instance, "crop_size"):
+            instance.crop_size = kwargs.get("crop_size", 480)
+        if not hasattr(instance, "base_size"):
+            instance.base_size = 520
+        instance.mean = getattr(instance, "mean", [0.5,0.5,0.5])
+        instance.std  = getattr(instance, "std",  [0.5,0.5,0.5])
+        instance._up_kwargs = up_kwargs
 
         # state_dict의 각 키에서 "net." 접두어를 제거합니다.
         new_state = {}
@@ -70,6 +90,11 @@ class LSegModule:
 
         # 모델에 state_dict를 로드합니다.
         instance.net.load_state_dict(new_state, strict=False)
+        # 체크포인트에 logit_scale 이 있으면 덮어씌웁니다.
+        if "logit_scale" in state:
+            instance.logit_scale = state["logit_scale"]
+        elif "module.logit_scale" in state:
+            instance.logit_scale = state["module.logit_scale"]
         return instance
 
 class LSegModuleWrapper:
