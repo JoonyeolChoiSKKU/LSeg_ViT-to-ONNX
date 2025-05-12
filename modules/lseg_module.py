@@ -40,7 +40,7 @@ class LSegModule:
             readout=kwargs["readout"],
         )
         # Patch embedding의 이미지 사이즈를 설정 (Image Encoder 추출에 필요)
-        self.net.pretrained.model.patch_embed.img_size = (self.crop_size, self.crop_size)
+        #self.net.pretrained.model.patch_embed.img_size = (self.crop_size, self.crop_size)
         self._up_kwargs = up_kwargs
 
     def get_labels(self, dataset):

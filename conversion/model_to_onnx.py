@@ -9,9 +9,11 @@ from modules.lseg_module import LSegModule
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--img_size", type=int, default=384, help="Input image size")
+    parser.add_argument("--img_size", type=int, default=480, help="Input image size")
     parser.add_argument("--weights", type=str, default="modules/demo_e200.ckpt", help="Path to checkpoint")
     args = parser.parse_args()
+    # dynamic H×W 지원하더라도 내부 crop_size 용으로 한 변 크기를 만들어 둡니다.
+    args.crop_size = args.img_size
     # ✅ 디바이스 설정 (GPU 사용 가능하면 GPU, 아니면 CPU)
     #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     #print(f"Using device: {device}")
@@ -33,7 +35,7 @@ if __name__ == "__main__":
         backbone="clip_vitl16_384",
         aux=False,
         num_features=256,
-        crop_size=args.img_size,
+        crop_size=args.crop_size,
         readout="project",
         aux_weight=0,
         se_loss=False,
@@ -57,16 +59,19 @@ if __name__ == "__main__":
 
     #dummy_input = torch.randn(1, 3, args.img_size, args.img_size, device=device)
     dummy_input = torch.randn(1, 3, args.img_size, args.img_size)
-    onnx_filename = f"output/models/lseg_img_enc_vit_{args.img_size}_{tag}.onnx"
+    onnx_filename = f"output/models/lseg_img_enc_vit_{tag}.onnx"
     
     torch.onnx.export(
-        model,
-        dummy_input,
-        onnx_filename,
-        input_names=["input"],
-        output_names=["output"],
-        opset_version=14,
-        dynamic_axes=None
-    )
-    
-    print(f"✅ Image Encoder가 ONNX 파일로 저장되었습니다: {onnx_filename}")
+    model,
+    dummy_input,
+    onnx_filename,
+    input_names=["input"],
+    output_names=["output"],
+    opset_version=14,
+    # ← 여기서 dynamic_axes 지정
+    dynamic_axes={
+        "input":  {2: "height", 3: "width"},
+        "output": {2: "height", 3: "width"},
+    }
+)
+print(f"✅ Dynamic ONNX 저장: {onnx_filename}")

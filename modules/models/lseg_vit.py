@@ -92,21 +92,22 @@ def forward_vit(pretrained, x):
     layer_4 = pretrained.act_postprocess4[0:2](layer_4)
     # 텐서가 3D라면 재구성 (patch_size에 맞게)
     if layer_1.ndim == 3:
-        layer_1 = layer_1.reshape(layer_1.shape[0], layer_1.shape[1],
-                                  int(h // pretrained.model.patch_size[1]),
-                                  int(w // pretrained.model.patch_size[0]))
+        # reshape 시에도 Python int 제거, grid_h/w 사용
+        grid_h = h // pretrained.model.patch_size[1]
+        grid_w = w // pretrained.model.patch_size[0]
+        layer_1 = layer_1.reshape(layer_1.shape[0], layer_1.shape[1], grid_h, grid_w)
     if layer_2.ndim == 3:
-        layer_2 = layer_2.reshape(layer_2.shape[0], layer_2.shape[1],
-                                  int(h // pretrained.model.patch_size[1]),
-                                  int(w // pretrained.model.patch_size[0]))
+        grid_h = h // pretrained.model.patch_size[1]
+        grid_w = w // pretrained.model.patch_size[0]
+        layer_2 = layer_2.reshape(layer_2.shape[0], layer_2.shape[1], grid_h, grid_w)
     if layer_3.ndim == 3:
-        layer_3 = layer_3.reshape(layer_3.shape[0], layer_3.shape[1],
-                                  int(h // pretrained.model.patch_size[1]),
-                                  int(w // pretrained.model.patch_size[0]))
+        grid_h = h // pretrained.model.patch_size[1]
+        grid_w = w // pretrained.model.patch_size[0]
+        layer_3 = layer_3.reshape(layer_3.shape[0], layer_3.shape[1], grid_h, grid_w)
     if layer_4.ndim == 3:
-        layer_4 = layer_4.reshape(layer_4.shape[0], layer_4.shape[1],
-                                  int(h // pretrained.model.patch_size[1]),
-                                  int(w // pretrained.model.patch_size[0]))
+        grid_h = h // pretrained.model.patch_size[1]
+        grid_w = w // pretrained.model.patch_size[0]
+        layer_4 = layer_4.reshape(layer_4.shape[0], layer_4.shape[1], grid_h, grid_w)
     # 후처리 단계 (나머지 모듈 적용)
     layer_1 = pretrained.act_postprocess1[3 : len(pretrained.act_postprocess1)](layer_1)
     layer_2 = pretrained.act_postprocess2[3 : len(pretrained.act_postprocess2)](layer_2)
@@ -120,7 +121,12 @@ def _resize_pos_embed(self, posemb, gs_h, gs_w):
         posemb[0, self.start_index :]
     )
 
-    gs_old = int(math.sqrt(len(posemb_grid)))
+    # 사전학습된 ViT의 패치 그리드 크기를 직접 계산
+    # patch_embed.img_size: (height, width) of the pretrained grid
+    # patch_size: [patch_height, patch_width]
+    img_h, img_w     = self.patch_embed.img_size
+    patch_h, patch_w = self.patch_size
+    gs_old = img_h // patch_h
 
     posemb_grid = posemb_grid.reshape(1, gs_old, gs_old, -1).permute(0, 3, 1, 2)
     posemb_grid = F.interpolate(posemb_grid, size=(gs_h, gs_w), mode="bilinear")
@@ -132,7 +138,10 @@ def _resize_pos_embed(self, posemb, gs_h, gs_w):
 
 def forward_flex(self, x):
     b, c, h, w = x.shape
-    pos_embed = self._resize_pos_embed(self.pos_embed, h // self.patch_size[1], w // self.patch_size[0])
+    # grid_h, grid_w를 텐서 연산으로 먼저 계산해 dynamic_axes 와 호환되게
+    grid_h = h // self.patch_size[1]
+    grid_w = w // self.patch_size[0]
+    pos_embed = self._resize_pos_embed(self.pos_embed, grid_h, grid_w)
     B = x.shape[0]
     if hasattr(self.patch_embed, "backbone"):
         x = self.patch_embed.backbone(x)
