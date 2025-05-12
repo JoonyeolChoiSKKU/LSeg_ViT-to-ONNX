@@ -1,24 +1,16 @@
-import copy
+# data/__init__.py
+from .base import BaseDataset, test_batchify_fn
+from .ade20k import ADE20KSegmentation
 
-import itertools
-import functools
-import numpy as np
-import torch
-import torch.utils.data
-import torchvision.transforms as torch_transforms
-import encoding.datasets as enc_ds
-
-encoding_datasets = {
-    x: functools.partial(enc_ds.get_dataset, x)
-    for x in ["coco", "ade20k", "pascal_voc", "pascal_aug", "pcontext", "citys"]
+datasets = {
+    'ade20k': ADE20KSegmentation,
 }
 
-
 def get_dataset(name, **kwargs):
-    if name in encoding_datasets:
-        return encoding_datasets[name.lower()](**kwargs)
-    assert False, f"dataset {name} not found"
-
+    key = name.lower()
+    if key not in datasets:
+        raise ValueError(f"Unknown dataset '{name}'")
+    return datasets[key](**kwargs)
 
 def get_available_datasets():
-    return list(encoding_datasets.keys()) 
+    return list(datasets.keys())
