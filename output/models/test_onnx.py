@@ -2,7 +2,7 @@ import onnxruntime as ort
 import numpy as np
 
 # ONNX Runtime 세션 생성
-session = ort.InferenceSession("lseg_image_encoder_384.onnx")
+session = ort.InferenceSession("lseg_img_enc_vit_ade20k.onnx")
 
 # 더미 입력 생성 (예: 배치 크기 1, 3채널, 384x384 이미지)
 dummy_input = np.random.randn(1, 3, 384, 384).astype(np.float32)

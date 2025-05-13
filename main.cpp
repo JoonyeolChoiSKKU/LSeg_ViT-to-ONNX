@@ -5,7 +5,9 @@
 #include <numeric>
 #include <cmath>
 #include <cuda_runtime.h>
-#include "NvInfer.h"
+#include <NvInfer.h>      // TensorRT core API
+#include <cstring>        // strcmp
+#include "NvInferRuntime.h"
 #include <fstream>
 
 using namespace nvinfer1;
@@ -56,7 +58,7 @@ void printProgress(int current, int total) {
 }
 
 
-void measureTRT(const std::string& enginePath, int size, int iterations=100) {
+void measureTRT(const std::string& enginePath, int H, int W, int iterations = 100) {
     Logger logger;
     ICudaEngine* engine = loadEngine(enginePath, logger);
     if (!engine) {
@@ -65,18 +67,35 @@ void measureTRT(const std::string& enginePath, int size, int iterations=100) {
     }
 
     IExecutionContext* context = engine->createExecutionContext();
+
+    // ① binding index 찾기
+    int inputIdx  = -1, outputIdx = -1;
+    int nbIO = engine->getNbIOTensors();           // 전체 I/O 텐서 개수
+    for(int i = 0; i < nbIO; ++i) {
+        const char* name = engine->getIOTensorName(i);
+        auto mode = engine->getTensorIOMode(name);
+        if(mode == nvinfer1::TensorIOMode::kINPUT  && !strcmp(name,"input"))
+            inputIdx = i;
+        if(mode == nvinfer1::TensorIOMode::kOUTPUT && !strcmp(name,"output"))
+            outputIdx = i;
+    }
+    if(inputIdx < 0 || outputIdx < 0)
+        throw std::runtime_error("cannot find input/output tensor index");
  
     std::string inputTensorName = engine->getIOTensorName(0);
     std::string outputTensorName = engine->getIOTensorName(1);
 
-    int inputElems = 3 * size * size;
-    int outputElems = 512 * size * size;
+    int inputElems  = 3 * H * W;
+    // 출력의 경우, ViT 패치 그리드 크기에 맞추려면 H/patch, W/patch 로 계산하거나
+    // 기존처럼 (512 × H × W) 를 써도 무방합니다.
+    int outputElems = 512 * (H/2) * (W/2);
     size_t inputBytes = inputElems * sizeof(float);
     size_t outputBytes = outputElems * sizeof(float);
 
     // Allocate
     float* dummy = new float[inputElems];
-    std::fill(dummy, dummy+inputElems, 0.5f);
+    // ▶ 모든 값을 1.0f 로 채워서, sum = 1.0 × 3 × H × W 이 되도록
+    std::fill(dummy, dummy+inputElems, 1.0f);
     void* d_input; void* d_output;
     cudaMalloc(&d_input, inputBytes);
     cudaMalloc(&d_output, outputBytes);
@@ -88,23 +107,55 @@ void measureTRT(const std::string& enginePath, int size, int iterations=100) {
     cudaStream_t stream;
     cudaStreamCreate(&stream);
 
-    // Warm‑up
-    for(int i=0;i<10;i++){
+    // Warm-up 10회 (매 번 dynamic H×W 지정!)
+    for(int i = 0; i < 10; ++i) {
+        nvinfer1::Dims4 inDim{1,3,H,W};
+        context->setInputShape("input", inDim);
         context->enqueueV3(stream);
         cudaStreamSynchronize(stream);
     }
 
+    // ▶▶ 디버그 한 번만 돌아갈 부분
+    // (1) hostOutput, outSize 선언
+    std::vector<float> hostOutput(outputElems);
+    size_t outSize = outputElems * sizeof(float);
+
+    // (2) dynamic shape 지정
+    nvinfer1::Dims4 inDim{1,3,H,W};
+    context->setInputShape("input", inDim);
+
+    // (3) inference + 복사
+    context->enqueueV3(stream);
+    cudaStreamSynchronize(stream);
+    cudaMemcpyAsync(hostOutput.data(), d_output, outSize, cudaMemcpyDeviceToHost, stream);
+    cudaStreamSynchronize(stream);
+
+    // (4) sum/mean 계산
+    float sum = std::accumulate(hostOutput.begin(), hostOutput.end(), 0.0f);
+    std::cout << "[DEBUG] C++ TRT single-run sum=" << sum
+            << ", mean=" << sum/hostOutput.size() << std::endl;
+
     std::vector<double> times;
     times.reserve(iterations);
-    for(int i=0;i<iterations;i++){
+    for(int i = 0; i < iterations; i++){
         auto t0 = Clock::now();
+
+        // ─── TensorRT10+ 에서는 setInputShape(name, Dims) 로만 shape 설정 ───
+        nvinfer1::Dims4 inDim{1,3,H,W};
+        context->setInputShape("input", inDim);
+
+        // 원래 있던 추론 호출
         context->enqueueV3(stream);
         cudaStreamSynchronize(stream);
+
         auto t1 = Clock::now();
-        times.push_back(std::chrono::duration<double, std::milli>(t1-t0).count());
-        printProgress(i+1, iterations);
+        times.push_back(
+            std::chrono::duration<double, std::milli>(t1 - t0).count()
+        );
+
+        // printProgress(i+1, iterations);  // ← 주석 처리
     }
-    std::cout << std::endl;
+    // std::cout << std::endl;  // progress bar 없앨 때 주석 처리
 
     double mean = std::accumulate(times.begin(), times.end(), 0.0)/iterations;
     double var = 0;
@@ -112,7 +163,7 @@ void measureTRT(const std::string& enginePath, int size, int iterations=100) {
     var /= iterations;
     double stddev = std::sqrt(var);
 
-    std::cout << "[RESULT] Size="<<size<<" Avg="<<mean<<" ms ± "<<stddev<<" ms\n";
+    std::cout << "[RESULT] Size="<< W << "x" << H <<" Avg="<<mean<<" ms ± "<<stddev<<" ms\n";
 
     // Cleanup
     delete[] dummy;
@@ -124,19 +175,26 @@ void measureTRT(const std::string& enginePath, int size, int iterations=100) {
 }
 
 
-
 int main(int argc, char** argv) {
-    if(argc < 4) {
-        std::cerr << "Usage: " << argv[0] 
-                  << " <engine.trt> <iterations> <size1> [size2 ...]\n";
+    // 이제 <H1> <W1> [H2 W2 ...] 페어로 받습니다
+    if(argc < 5 || (argc - 3) % 2 != 0) {
+        std::cerr << "Usage: " << argv[0]
+                  << " <engine.trt> <iterations> <H1> <W1> [H2 W2 ...]\n";
         return -1;
     }
+    int iters = std::stoi(argv[2]);
+    int H     = std::stoi(argv[3]);
+    int W     = std::stoi(argv[4]);
+
 
     std::string enginePath = argv[1];
     int iterations = std::stoi(argv[2]);
-    for(int i = 3; i < argc; i++){
-        int size = std::stoi(argv[i]);
-        measureTRT(enginePath, size, iterations);
+    // (H, W) 페어 단위로 measureTRT 호출
+    for(int i = 3; i + 1 < argc; i += 2) {
+        int H = std::stoi(argv[i]);
+        int W = std::stoi(argv[i+1]);
+        measureTRT(enginePath, H, W, iterations);
     }
+
     return 0;
 }
